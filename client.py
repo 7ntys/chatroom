@@ -70,6 +70,10 @@ class SecureChatClient:
 
         tk.Label(self.root, text="Login to Secure Chatroom", font=self.heading_font).pack(pady=20)
 
+        tk.Label(self.root, text="Email:", font=self.label_font).pack(pady=5)
+        self.email_entry = tk.Entry(self.root)
+        self.email_entry.pack(pady=5)
+
         tk.Label(self.root, text="Username:", font=self.label_font).pack(pady=5)
         self.username_entry = tk.Entry(self.root)
         self.username_entry.pack(pady=5)
@@ -86,6 +90,10 @@ class SecureChatClient:
 
         tk.Label(self.root, text="Register for Secure Chatroom", font=self.heading_font).pack(pady=20)
 
+        tk.Label(self.root, text="Email:", font=self.label_font).pack(pady=5)
+        self.email_entry = tk.Entry(self.root)
+        self.email_entry.pack(pady=5)
+
         tk.Label(self.root, text="Username:", font=self.label_font).pack(pady=5)
         self.username_entry = tk.Entry(self.root)
         self.username_entry.pack(pady=5)
@@ -98,18 +106,47 @@ class SecureChatClient:
         tk.Button(self.root, text="Back", command=self.create_initial_page, **self.button_style).pack(pady=10)
 
     def login(self):
+        self.email = self.email_entry.get().strip()
         self.username = self.username_entry.get().strip()
         self.password = self.password_entry.get().strip()
 
-        if not self.username or not self.password:
-            messagebox.showerror("Error", "Username and Password are required!")
+        if not self.email or not self.username or not self.password:
+            messagebox.showerror("Error", "Email, Username, and Password are required!")
             return
 
-        # Mock login check (replace with actual authentication)
         if self.authenticate_user(self.username, self.password):
-            self.show_room_selection_page()
+            self.show_2fa_window("login")
         else:
-            messagebox.showerror("Error", "Invalid Username or Password")
+            messagebox.showerror("Error", "Invalid Email, Username, or Password")
+
+
+    def show_2fa_window(self, action):
+        self.clear_window()
+        tk.Label(self.root, text="We sent to you a mail at "+self.email+"\n Enter 2FA Code", font=self.heading_font).pack(pady=20)
+
+        self.two_fa_entry = tk.Entry(self.root)
+        self.two_fa_entry.pack(pady=5)
+
+        tk.Button(self.root, text="Submit", command=lambda: self.check_2fa(action), **self.button_style).pack(pady=10)
+
+    def check_2fa(self, action):
+        code = self.two_fa_entry.get().strip()
+        if code == "0000":
+            if action == "login":
+                self.show_room_selection_page()
+            elif action == "register":
+                self.show_room_selection_page()
+        else:
+            messagebox.showerror("Error", "Invalid 2FA Code")
+
+
+
+
+
+
+
+
+
 
     def authenticate_user(self, username, password):
         # Simulated authentication logic (replace with actual logic)
@@ -155,24 +192,21 @@ class SecureChatClient:
             return ""
 
     def register(self):
+        # self.email = self.email_entry.get().strip()
         self.username = self.username_entry.get().strip()
         self.password = self.password_entry.get().strip()
 
         if not self.username or not self.password:
-            messagebox.showerror("Error", "Username and Password are required!")
+            messagebox.showerror("Error", "Email, Username, and Password are required!")
             return
+
         self.send_request(f"REGISTER {self.username} {self.password}")
         response = self.receive_response()
         if response == "REGISTER_SUCCESS":
-            print('success')
             messagebox.showinfo("Success", f"Account '{self.username}' created successfully!")
-            self.show_room_selection_page()
+            self.show_2fa_window("register")
         else:
-            print("failed")
-            messagebox.showinfo("Nop", f"Account '{self.username}' not created")
-
-        print(f'response : {response}')
-        # Code to register user (simulated)
+            messagebox.showerror("Error", f"Account '{self.username}' not created")
 
     def update_room_list(self):
         self.send_request("LIST_ROOMS")
