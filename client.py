@@ -3,7 +3,7 @@ import ssl
 import threading
 import time
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime,timedelta
 from tkinter import scrolledtext, messagebox, Listbox
 
 message_by_room = {}
@@ -45,6 +45,7 @@ class SecureChatClient:
         if self.listening:
             try:
                 #Ici cela attend et capte le premier message recu du servuer => probleme
+                #self.ssl_sock.setblocking(0)
                 message = self.ssl_sock.recv(1024).decode().strip()
                 print(f"Received message: {message}")
                 if message.startswith("MESSAGE_INCOMING"):
@@ -53,7 +54,7 @@ class SecureChatClient:
                     self.display_message(timestamp,username,message)
             except Exception as e:
                 print(f"Error receiving message: {e}")
-
+        #self.ssl_sock.setblocking(1)
         return
 
     def create_initial_page(self):
@@ -134,6 +135,7 @@ class SecureChatClient:
         """Sends a request to the server."""
         try:
             self.listening = False
+            self.ssl_sock.setblocking(1)
             print(f"Sending request: {request} : listening : {self.listening}")
             self.ssl_sock.sendall(request.encode())
         except Exception as e:
@@ -142,10 +144,11 @@ class SecureChatClient:
     def receive_response(self):
         """Receives a response from the server."""
         try:
-            response = self.ssl_sock.recv(1024).decode().strip()
+            response = self.ssl_sock.recv(4096).decode().strip()
             print(f"Received response: {response}")
             self.listening = True
-            threading.Thread(target=self.listen_for_messages, args=(1,), daemon=True).start()
+
+            #threading.Thread(target=self.listen_for_messages, args=(1,), daemon=True).start()
             return response
         except Exception as e:
             print(f"Error receiving response: {e}")
@@ -220,14 +223,15 @@ class SecureChatClient:
                     self.create_chatroom()
                     self.retrieve_room_history()
                     #Create a thread that update history every 2 seconds :
-                    threading.Thread(target=self.listen_for_messages, args=(1,), daemon=True).start()
+                    threading.Thread(target=self.wrapper_history, args=(1,), daemon=True).start()
+                    
                 else:
                     messagebox.showerror("Error", "Incorrect Room Password")
 
     def wrapper_history(self,name):
         while True:
             self.retrieve_room_history()
-            time.sleep(1)
+            time.sleep(0.5)
 
     def retrieve_room_history(self):
         self.send_request(f"LIST_MESSAGES {self.selected_room[0]}")
@@ -280,7 +284,6 @@ class SecureChatClient:
     def send_message(self, event=None):
         message = self.input_text.get()
         if message:
-            self.display_message(datetime.today(), self.username, message)
             self.input_text.delete(0, tk.END)
             # Here you would add the code to send the message to the server
             # Example: self.client_socket.sendall(message.encode())
@@ -296,7 +299,8 @@ class SecureChatClient:
 
     def display_message(self, timestamp, sender, message):
         self.chat_display.config(state='normal')
-        self.chat_display.insert(tk.END, f"[{timestamp}] {sender}: {message}\n")
+        temp = str(timestamp)[1:-1]
+        self.chat_display.insert(tk.END, f"[{temp}] {sender}: {message}\n")
         self.chat_display.config(state='disabled')
         self.chat_display.yview(tk.END)
 
