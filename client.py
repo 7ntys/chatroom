@@ -87,7 +87,7 @@ class SecureChatClient:
 
     def show_register_page(self):
         self.clear_window()
-
+        #printsijijithji
         tk.Label(self.root, text="Register for Secure Chatroom", font=self.heading_font).pack(pady=20)
 
         tk.Label(self.root, text="Email:", font=self.label_font).pack(pady=5)
