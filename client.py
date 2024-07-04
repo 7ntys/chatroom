@@ -3,10 +3,19 @@ import ssl
 import threading
 import time
 import tkinter as tk
-from datetime import datetime
-from tkinter import scrolledtext, messagebox, Listbox
+from datetime import datetime,timedelta
+from tkinter import scrolledtext, messagebox, Listbox, filedialog
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+from PIL import Image, ImageTk
+import base64
+import io  # Add io import for handling byte data
+import os
 
 message_by_room = {}
+
+
 class SecureChatClient:
     def __init__(self, root):
         self.root = root
@@ -20,6 +29,7 @@ class SecureChatClient:
         # Data
         self.username = None
         self.password = None
+        self.email = None
         self.selected_room = None
         self.listening = True
         self.room_list = {"Room A": "passwordA", "Room B": "passwordB",
@@ -41,19 +51,20 @@ class SecureChatClient:
         # Create initial page
         self.create_initial_page()
 
-    def listen_for_messages(self,name):
+    def listen_for_messages(self, name):
         if self.listening:
             try:
-                #Ici cela attend et capte le premier message recu du servuer => probleme
+                # Ici cela attend et capte le premier message recu du servuer => probleme
+                # self.ssl_sock.setblocking(0)
                 message = self.ssl_sock.recv(1024).decode().strip()
                 print(f"Received message: {message}")
                 if message.startswith("MESSAGE_INCOMING"):
                     message = message.replace("MESSAGE_INCOMING", "").strip()
-                    timestamp,username,message = message.split("$")
-                    self.display_message(timestamp,username,message)
+                    timestamp, username, message = message.split("$")
+                    self.display_message(timestamp, username, message)
             except Exception as e:
                 print(f"Error receiving message: {e}")
-
+        # self.ssl_sock.setblocking(1)
         return
 
     def create_initial_page(self):
@@ -85,6 +96,10 @@ class SecureChatClient:
 
         tk.Label(self.root, text="Register for Secure Chatroom", font=self.heading_font).pack(pady=20)
 
+        tk.Label(self.root, text="Email:", font=self.label_font).pack(pady=5)
+        self.email_entry = tk.Entry(self.root)
+        self.email_entry.pack(pady=5)
+
         tk.Label(self.root, text="Username:", font=self.label_font).pack(pady=5)
         self.username_entry = tk.Entry(self.root)
         self.username_entry.pack(pady=5)
@@ -104,21 +119,39 @@ class SecureChatClient:
             messagebox.showerror("Error", "Username and Password are required!")
             return
 
-        # Mock login check (replace with actual authentication)
         if self.authenticate_user(self.username, self.password):
+            self.show_2fa_window("login")
+        else:
+            messagebox.showerror("Error", "Invalid Email, Username, or Password")
+
+    def show_2fa_window(self, action):
+        self.clear_window()
+        tk.Label(self.root, text="We sent to you a mail at " + "ypur email" + "\n Enter 2FA Code", font=self.heading_font).pack(pady=20)
+
+        self.two_fa_entry = tk.Entry(self.root)
+        self.two_fa_entry.pack(pady=5)
+
+        tk.Button(self.root, text="Submit", command=lambda: self.check_2fa(action), **self.button_style).pack(pady=10)
+
+    def check_2fa(self, action):
+        code = self.two_fa_entry.get().strip()
+        self.send_request(f"VERIFY_CODE {code} {self.username}")
+        response = self.receive_response()
+        print(response)
+        if response == "VERIFY_SUCCESS":
             self.show_room_selection_page()
         else:
-            messagebox.showerror("Error", "Invalid Username or Password")
+            messagebox.showerror("Error", "Invalid 2FA Code")
 
     def authenticate_user(self, username, password):
         # Simulated authentication logic (replace with actual logic)
 
         if username and password:
-            self.send_request(f"LOGIN {username} {password}")
+            self.send_request(f"LOGIN {username} {encrypt(key, password)}")
 
             response = self.receive_response()
             print(f'response : {response}')
-            if response == "LOGIN_SUCCESS":
+            if response == "VERIFICATION_CODE_SENT":
                 print('success')
                 return True
                 # Proceed to the next step (e.g., join room)
@@ -134,6 +167,7 @@ class SecureChatClient:
         """Sends a request to the server."""
         try:
             self.listening = False
+            self.ssl_sock.setblocking(1)
             print(f"Sending request: {request} : listening : {self.listening}")
             self.ssl_sock.sendall(request.encode())
         except Exception as e:
@@ -142,10 +176,11 @@ class SecureChatClient:
     def receive_response(self):
         """Receives a response from the server."""
         try:
-            response = self.ssl_sock.recv(1024).decode().strip()
+            response = self.ssl_sock.recv(4096).decode().strip()
             print(f"Received response: {response}")
             self.listening = True
-            threading.Thread(target=self.listen_for_messages, args=(1,), daemon=True).start()
+
+            # threading.Thread(target=self.listen_for_messages, args=(1,), daemon=True).start()
             return response
         except Exception as e:
             print(f"Error receiving response: {e}")
@@ -154,22 +189,19 @@ class SecureChatClient:
     def register(self):
         self.username = self.username_entry.get().strip()
         self.password = self.password_entry.get().strip()
+        self.email = self.email_entry.get().strip()
 
-        if not self.username or not self.password:
-            messagebox.showerror("Error", "Username and Password are required!")
+        if not self.username or not self.password or not self.email:
+            messagebox.showerror("Error", "Email, Username, and Password are required!")
             return
-        self.send_request(f"REGISTER {self.username} {self.password}")
+
+        self.send_request(f"REGISTER {self.username} {encrypt(key, self.password)} {encrypt(key, self.email)}")
         response = self.receive_response()
         if response == "REGISTER_SUCCESS":
-            print('success')
             messagebox.showinfo("Success", f"Account '{self.username}' created successfully!")
-            self.show_room_selection_page()
+            self.show_2fa_window("register")
         else:
-            print("failed")
-            messagebox.showinfo("Nop", f"Account '{self.username}' not created")
-
-        print(f'response : {response}')
-        # Code to register user (simulated)
+            messagebox.showerror("Error", f"Account '{self.username}' not created")
 
     def update_room_list(self):
         self.send_request("LIST_ROOMS")
@@ -219,15 +251,16 @@ class SecureChatClient:
                     messagebox.showinfo("Joined Room", f"You joined room: {self.selected_room}")
                     self.create_chatroom()
                     self.retrieve_room_history()
-                    #Create a thread that update history every 2 seconds :
-                    threading.Thread(target=self.listen_for_messages, args=(1,), daemon=True).start()
+                    # Create a thread that update history every 2 seconds :
+                    threading.Thread(target=self.wrapper_history, args=(1,), daemon=True).start()
+
                 else:
                     messagebox.showerror("Error", "Incorrect Room Password")
 
-    def wrapper_history(self,name):
+    def wrapper_history(self, name):
         while True:
             self.retrieve_room_history()
-            time.sleep(1)
+            time.sleep(0.5)
 
     def retrieve_room_history(self):
         self.send_request(f"LIST_MESSAGES {self.selected_room[0]}")
@@ -240,6 +273,7 @@ class SecureChatClient:
             messages = response.split("$")
             print(f'messages : {messages}')
             for message in messages:
+                message = decrypt(key,message)
                 if not message or len(message) < 3:
                     continue
                 print(f'message : {message}')
@@ -271,6 +305,7 @@ class SecureChatClient:
         self.input_text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.input_text.bind("<Return>", self.send_message)
 
+        tk.Button(self.root, text="Upload Image", command=self.upload_image, font=("Helvetica", 12)).pack(side=tk.RIGHT)
         tk.Button(self.input_frame, text="Send", command=self.send_message, **self.button_style).pack(side=tk.RIGHT)
 
     def clear_window(self):
@@ -280,11 +315,10 @@ class SecureChatClient:
     def send_message(self, event=None):
         message = self.input_text.get()
         if message:
-            self.display_message(datetime.today(), self.username, message)
             self.input_text.delete(0, tk.END)
             # Here you would add the code to send the message to the server
             # Example: self.client_socket.sendall(message.encode())
-            self.send_request(f"SEND_MESSAGE {self.selected_room[0]} {self.username} {message}")
+            self.send_request(f"SEND_MESSAGE {self.selected_room[0]} {encrypt(key,self.username)} {encrypt(key, message)}")
             response = self.receive_response()
             if response == "SEND_MESSAGE_SUCCESS":
                 print("Message sent successfully")
@@ -296,9 +330,51 @@ class SecureChatClient:
 
     def display_message(self, timestamp, sender, message):
         self.chat_display.config(state='normal')
-        self.chat_display.insert(tk.END, f"[{timestamp}] {sender}: {message}\n")
+        temp = str(timestamp)[1:-1]
+        self.chat_display.insert(tk.END, f"[{temp}] {sender}: {message}\n")
         self.chat_display.config(state='disabled')
         self.chat_display.yview(tk.END)
+
+    def upload_image(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            with open(file_path, "rb") as image_file:
+                image_data = image_file.read()
+                self.send_request(f"SEND_IMAGE {self.selected_room[0]} {self.username} {os.path.basename(file_path)} {encrypt(key, image_data)}")
+
+    def display_image(self, image_data):
+        decoded_image = base64.b64decode(decrypt(key,image_data))
+        image = Image.open(io.BytesIO(decoded_image))
+        photo = ImageTk.PhotoImage(image)
+        self.chat_display.image_create(tk.END, image=photo)
+        self.chat_display.insert(tk.END, '\n')
+
+# Encryption
+# The key for each room is stored in the DB, each room got a different encryption key
+def generate_key():
+    return get_random_bytes(32)
+def encrypt(key, plaintext):
+    cipher = AES.new(key, AES.MODE_ECB)  # Creating the cipher with the key
+    # Pad the plaintext to be a multiple of 16 bytes (AES block size)
+    padded_plaintext = pad(plaintext.encode('utf-8'), AES.block_size)
+    ciphertext = cipher.encrypt(padded_plaintext)  # Encryption
+    # Encode ciphertext in base64 for storage or transmission
+    return base64.b64encode(ciphertext).decode('utf-8')
+def decrypt(key, encrypted_message):
+    encrypted_data = base64.b64decode(encrypted_message.encode('utf-8'))  # decode from base 64
+    cipher = AES.new(key, AES.MODE_ECB)  # recreating the cipher
+    decrypted_data = cipher.decrypt(encrypted_data)  # decrypting
+    # Remove padding from decrypted plaintext
+    plaintext = unpad(decrypted_data, AES.block_size).decode('utf-8')
+    return plaintext
+def pad(data, block_size):  # Adding padding to fit the 16 bytes size of blocks for AES
+    padding_length = block_size - len(data) % block_size
+    padding = bytes([padding_length]) * padding_length
+    return data + padding
+key = b'C\x89m\xe9e\x86y#\xb7\xba3\nZ\x0bz\x17\xc3\x1d\xc8\xcaVr\xc3\xd0M\x1d\xb6\xaa\x99\x88\x9fx'
+def unpad(data, block_size):  # Unpadding to read the message
+    padding_length = data[-1]
+    return data[:-padding_length]
 
 
 # tkinter end
